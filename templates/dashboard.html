@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Facebook Unfriend Tracker</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .header-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .stat-card { transition: transform 0.3s ease; border-radius: 15px; }
+        .stat-card:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .dashboard-container { margin: 20px 0; }
+        .chart-container { background: white; border-radius: 15px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .activity-item { padding: 10px; border-left: 4px solid #007bff; margin: 10px 0; background: #f8f9fa; border-radius: 5px; }
+        .activity-unfriend { border-left-color: #dc3545; }
+        .activity-friend { border-left-color: #28a745; }
+        .metric-icon { font-size: 2.5rem; opacity: 0.3; position: absolute; right: 20px; top: 20px; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark header-bg">
+        <div class="container">
+            <a class="navbar-brand" href="/"><i class="fab fa-facebook-f"></i> Unfriend Tracker</a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">Home</a>
+                <a class="nav-link" href="/spreadsheet">Spreadsheet</a>
+                <a class="nav-link active" href="/dashboard">Dashboard</a>
+                <a class="nav-link" href="/schedule">Schedule</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <h1><i class="fas fa-chart-area"></i> Dashboard</h1>
+                <p class="lead">Overview of your Facebook friends tracking activity</p>
+            </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="row dashboard-container">
+            <div class="col-md-4">
+                <div class="card stat-card h-100 border-0 bg-primary text-white position-relative">
+                    <div class="card-body">
+                        <h5 class="card-title">Current Friends</h5>
+                        <h2 class="display-4 fw-bold">{{ current_friends }}</h2>
+                        <p class="card-text">Active in your friends list</p>
+                        <i class="fas fa-users metric-icon"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card h-100 border-0 bg-danger text-white position-relative">
+                    <div class="card-body">
+                        <h5 class="card-title">Total Unfriends</h5>
+                        <h2 class="display-4 fw-bold">{{ total_unfriends }}</h2>
+                        <p class="card-text">All time unfriend count</p>
+                        <i class="fas fa-user-minus metric-icon"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card h-100 border-0 bg-warning text-white position-relative">
+                    <div class="card-body">
+                        <h5 class="card-title">Recent Activity</h5>
+                        <h2 class="display-4 fw-bold">{{ recent_unfriends|length }}</h2>
+                        <p class="card-text">Unfriends in last 30 days</p>
+                        <i class="fas fa-clock metric-icon"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <!-- Recent Activity -->
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h5><i class="fas fa-history"></i> Recent Unfriends (Last 30 Days)</h5>
+                    {% if recent_unfriends %}
+                        <div style="max-height: 400px; overflow-y: auto;">
+                            {% for unfriend in recent_unfriends %}
+                            <div class="activity-item activity-unfriend">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong><i class="fas fa-user-minus text-danger"></i> {{ unfriend[0] }}</strong>
+                                    </div>
+                                    <small class="text-muted">
+                                        {{ unfriend[1][:10] if unfriend[1] else 'Unknown' }}
+                                    </small>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-smile text-success" style="font-size: 3rem;"></i>
+                            <h5 class="mt-3 text-success">No Recent Unfriends!</h5>
+                            <p class="text-muted">Great news! Nobody has unfriended you recently.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Tracking History Chart -->
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h5><i class="fas fa-chart-line"></i> Tracking History</h5>
+                    {% if history %}
+                        <canvas id="historyChart" width="400" height="200"></canvas>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-chart-line text-muted" style="font-size: 3rem;"></i>
+                            <h5 class="mt-3">No Tracking History</h5>
+                            <p class="text-muted">Upload Facebook data to see tracking history</p>
+                            <a href="/" class="btn btn-primary">
+                                <i class="fas fa-upload"></i> Upload Data
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Detailed History Table -->
+        {% if history %}
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="chart-container">
+                    <h5><i class="fas fa-table"></i> Detailed Tracking History</h5>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Total Friends</th>
+                                    <th>Unfriended</th>
+                                    <th>New Friends</th>
+                                    <th>Net Change</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for entry in history %}
+                                <tr>
+                                    <td>{{ entry[3][:10] if entry[3] else 'Unknown' }}</td>
+                                    <td><span class="badge bg-primary">{{ entry[0] }}</span></td>
+                                    <td>
+                                        {% if entry[1] > 0 %}
+                                            <span class="badge bg-danger">-{{ entry[1] }}</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">0</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if entry[2] > 0 %}
+                                            <span class="badge bg-success">+{{ entry[2] }}</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">0</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% set net_change = entry[2] - entry[1] %}
+                                        {% if net_change > 0 %}
+                                            <span class="badge bg-success">+{{ net_change }}</span>
+                                        {% elif net_change < 0 %}
+                                            <span class="badge bg-danger">{{ net_change }}</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">0</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Quick Actions -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="chart-container">
+                    <h5><i class="fas fa-bolt"></i> Quick Actions</h5>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <a href="/" class="btn btn-primary btn-lg w-100 mb-3">
+                                <i class="fas fa-upload"></i><br>Upload New Data
+                            </a>
+                        </div>
+                        <div class="col-md-3">
+                            <a href="/spreadsheet" class="btn btn-info btn-lg w-100 mb-3">
+                                <i class="fas fa-table"></i><br>View Spreadsheet
+                            </a>
+                        </div>
+                        <div class="col-md-3">
+                            <a href="/download_csv/friends" class="btn btn-success btn-lg w-100 mb-3">
+                                <i class="fas fa-download"></i><br>Export Friends
+                            </a>
+                        </div>
+                        <div class="col-md-3">
+                            <a href="/download_csv/unfriends" class="btn btn-warning btn-lg w-100 mb-3">
+                                <i class="fas fa-download"></i><br>Export Unfriends
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    {% if history %}
+    <script>
+        // Create tracking history chart
+        const ctx = document.getElementById('historyChart').getContext('2d');
+        const historyData = {{ history | tojsonfilter | safe }};
+        
+        const labels = historyData.map(entry => entry[3] ? entry[3].split(' ')[0] : 'Unknown').reverse();
+        const friendsData = historyData.map(entry => entry[0]).reverse();
+        const unfriendedData = historyData.map(entry => entry[1]).reverse();
+        const newFriendsData = historyData.map(entry => entry[2]).reverse();
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Total Friends',
+                    data: friendsData,
+                    borderColor: '#007bff',
+                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                    tension: 0.4
+                }, {
+                    label: 'Unfriended',
+                    data: unfriendedData,
+                    borderColor: '#dc3545',
+                    backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                    tension: 0.4
+                }, {
+                    label: 'New Friends',
+                    data: newFriendsData,
+                    borderColor: '#28a745',
+                    backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: 'Friends Activity Over Time'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    </script>
+    {% endif %}
+</body>
+</html>

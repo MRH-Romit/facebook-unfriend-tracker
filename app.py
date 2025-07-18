@@ -3,12 +3,21 @@ import json
 import csv
 import os
 import sqlite3
+import secrets
+import logging
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, flash, send_file, redirect, url_for
 from werkzeug.utils import secure_filename
+from werkzeug.exceptions import RequestEntityTooLarge
 
 app = Flask(__name__)
-app.secret_key = 'fb-tracker-secret-key'
+# Use environment variable or generate secure secret key
+app.secret_key = os.environ.get('SECRET_KEY', secrets.token_urlsafe(32))
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
