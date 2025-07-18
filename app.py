@@ -320,52 +320,85 @@ def save_unfriends_to_csv(unfriends_list, filename=None):
     
     return filepath
 
-def update_database_with_friends(friends_data):
+def update_database_with_friends(friends_data, upload_filename=None):
     """Update database with current friends data"""
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
     
-    # Get current friends from database
-    cursor.execute("SELECT name FROM friends WHERE status = 'active'")
-    current_friends = set(row[0] for row in cursor.fetchall())
-    
-    new_friends = set(friend['name'] for friend in friends_data)
-    
-    # Find unfriended users
-    unfriended = current_friends - new_friends
-    
-    # Find new friends
-    newly_added = new_friends - current_friends
-    
-    # Mark unfriended users as inactive
-    for friend in unfriended:
-        cursor.execute("""
-            UPDATE friends SET status = 'inactive' WHERE name = ? AND status = 'active'
-        """, (friend,))
+    try:
+        # Get current friends from database
+        cursor.execute("SELECT name FROM friends WHERE status = 'active'")
+        current_friends = set(row[0] for row in cursor.fetchall())
         
-        # Add to unfriends table
-        cursor.execute("""
-            INSERT INTO unfriends (name, unfriended_date) VALUES (?, ?)
-        """, (friend, datetime.now()))
-    
-    # Add new friends with their original Facebook timestamp
-    for friend in friends_data:
-        if friend['name'] in newly_added:
+        new_friends = set(friend['name'] for friend in friends_data)
+        
+        # Find unfriended users
+        unfriended = current_friends - new_friends
+        
+        # Find new friends
+        newly_added = new_friends - current_friends
+        
+        current_time = datetime.now()
+        
+        # Mark unfriended users as inactive
+        for friend in unfriended:
             cursor.execute("""
-                INSERT INTO friends (name, timestamp, status, facebook_timestamp) 
-                VALUES (?, ?, 'active', ?)
-            """, (friend['name'], datetime.now(), friend['timestamp']))
-    
-    # Update tracking history
-    cursor.execute("""
-        INSERT INTO tracking_history (total_friends, unfriended_count, new_friends_count)
-        VALUES (?, ?, ?)
-    """, (len(new_friends), len(unfriended), len(newly_added)))
-    
-    conn.commit()
-    conn.close()
-    
-    return list(unfriended), list(newly_added)
+                UPDATE friends SET status = 'inactive', last_updated = ? 
+                WHERE name = ? AND status = 'active'
+            """, (current_time, friend))
+            
+            # Calculate friendship duration
+            cursor.execute("""
+                SELECT first_seen FROM friends WHERE name = ? AND status = 'inactive'
+            """, (friend,))
+            result = cursor.fetchone()
+            
+            friendship_duration = 0
+            if result and result[0]:
+                try:
+                    first_seen = datetime.fromisoformat(result[0])
+                    friendship_duration = (current_time - first_seen).days
+                except:
+                    friendship_duration = 0
+            
+            # Add to unfriends table
+            cursor.execute("""
+                INSERT INTO unfriends (name, unfriended_date, friend_duration_days) 
+                VALUES (?, ?, ?)
+            """, (friend, current_time, friendship_duration))
+        
+        # Add new friends with their original Facebook timestamp
+        for friend in friends_data:
+            if friend['name'] in newly_added:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO friends 
+                    (name, timestamp, status, facebook_timestamp, first_seen, last_updated) 
+                    VALUES (?, ?, 'active', ?, ?, ?)
+                """, (friend['name'], current_time, friend['timestamp'], current_time, current_time))
+            else:
+                # Update existing friends' last_updated timestamp
+                cursor.execute("""
+                    UPDATE friends SET last_updated = ? WHERE name = ? AND status = 'active'
+                """, (current_time, friend['name']))
+        
+        # Update tracking history
+        cursor.execute("""
+            INSERT INTO tracking_history 
+            (total_friends, unfriended_count, new_friends_count, upload_filename)
+            VALUES (?, ?, ?, ?)
+        """, (len(new_friends), len(unfriended), len(newly_added), upload_filename))
+        
+        conn.commit()
+        logger.info(f"Database updated: {len(new_friends)} total, {len(unfriended)} unfriended, {len(newly_added)} new")
+        
+        return list(unfriended), list(newly_added)
+        
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Database update failed: {e}")
+        raise
+    finally:
+        conn.close()
 
 def get_unfriends_from_db(days=30):
     """Get unfriends from database within specified days"""
@@ -481,39 +514,93 @@ def api_schedule():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    """Handle file upload"""
-    if 'file' not in request.files:
-        flash('No file selected')
-        return redirect(request.url)
-    
-    file = request.files['file']
-    if file.filename == '':
-        flash('No file selected')
-        return redirect(request.url)
-    
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(filepath)
+    """Handle file upload with improved validation and error handling"""
+    try:
+        if 'file' not in request.files:
+            flash('No file selected')
+            log_action('WARNING', 'Upload attempted without file', 'file_upload')
+            return redirect(url_for('index'))
         
-        # Extract friends
-        friends_data = extract_friends_from_json(filepath)
+        file = request.files['file']
+        if file.filename == '':
+            flash('No file selected')
+            log_action('WARNING', 'Upload attempted with empty filename', 'file_upload')
+            return redirect(url_for('index'))
+        
+        if not allowed_file(file.filename):
+            flash('Invalid file type. Please upload a JSON file.')
+            log_action('WARNING', f'Invalid file type attempted: {file.filename}', 'file_upload')
+            return redirect(url_for('index'))
+        
+        # Secure filename and save
+        filename = secure_filename(file.filename)
+        if not filename:
+            flash('Invalid filename. Please rename your file and try again.')
+            return redirect(url_for('index'))
+            
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        
+        # Add timestamp to prevent overwrites
+        base, ext = os.path.splitext(filename)
+        counter = 1
+        while os.path.exists(filepath):
+            filename = f"{base}_{counter}{ext}"
+            filepath = os.path.join(UPLOAD_FOLDER, filename)
+            counter += 1
+        
+        file.save(filepath)
+        log_action('INFO', f'File uploaded successfully: {filename}', 'file_upload')
+        
+        # Extract friends with error handling
+        try:
+            friends_data = extract_friends_from_json(filepath)
+        except (ValueError, FileNotFoundError) as e:
+            # Clean up uploaded file on error
+            try:
+                os.remove(filepath)
+            except:
+                pass
+            flash(str(e))
+            log_action('ERROR', f'File processing failed: {str(e)}', 'file_processing')
+            return redirect(url_for('index'))
         
         if not friends_data:
+            # Clean up uploaded file
+            try:
+                os.remove(filepath)
+            except:
+                pass
             flash('Could not extract friends from the file. Please check the file format.')
+            log_action('ERROR', 'No friends data extracted from file', 'file_processing')
             return redirect(url_for('index'))
         
         # Save to CSV
-        csv_filepath = save_friends_to_csv(friends_data)
+        try:
+            csv_filepath = save_friends_to_csv(friends_data, f"{base}_processed.csv")
+        except Exception as e:
+            logger.error(f"Failed to save CSV: {e}")
+            flash('Warning: Could not save CSV backup.')
+            csv_filepath = None
         
-        # Update database and get unfriends
-        unfriended, newly_added = update_database_with_friends(friends_data)
+        # Update database and get changes
+        try:
+            unfriended, newly_added = update_database_with_friends(friends_data, filename)
+        except Exception as e:
+            logger.error(f"Database update failed: {e}")
+            flash('Error updating database. Please try again.')
+            log_action('ERROR', f'Database update failed: {str(e)}', 'database_update')
+            return redirect(url_for('index'))
         
         # Save unfriends to CSV if any
         if unfriended:
-            save_unfriends_to_csv(unfriended)
+            try:
+                save_unfriends_to_csv(unfriended)
+            except Exception as e:
+                logger.error(f"Failed to save unfriends CSV: {e}")
         
-        flash(f'Successfully processed {len(friends_data)} friends. Found {len(unfriended)} unfriends and {len(newly_added)} new friends.')
+        success_msg = f'Successfully processed {len(friends_data)} friends. Found {len(unfriended)} unfriends and {len(newly_added)} new friends.'
+        flash(success_msg)
+        log_action('INFO', success_msg, 'processing_complete')
         
         return render_template('results.html', 
                              total_friends=len(friends_data),
@@ -521,8 +608,11 @@ def upload_file():
                              newly_added=newly_added,
                              csv_path=csv_filepath)
     
-    flash('Invalid file type. Please upload a JSON file.')
-    return redirect(url_for('index'))
+    except Exception as e:
+        logger.error(f"Unexpected error in upload: {e}")
+        flash('An unexpected error occurred. Please try again.')
+        log_action('ERROR', f'Unexpected upload error: {str(e)}', 'file_upload')
+        return redirect(url_for('index'))
 
 @app.route('/dashboard')
 def dashboard():
