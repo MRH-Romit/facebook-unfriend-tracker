@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schedule Management - Facebook Unfriend Tracker</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .header-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .schedule-card {
+            border: 1px solid #dee2e6;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 15px 0;
+            background: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-active { background-color: #28a745; }
+        .status-inactive { background-color: #6c757d; }
+        .status-paused { background-color: #ffc107; }
+        .status-error { background-color: #dc3545; }
+        .timeline {
+            position: relative;
+            padding-left: 30px;
+        }
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 15px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #dee2e6;
+        }
+        .timeline-item {
+            position: relative;
+            padding: 15px 0;
+        }
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -23px;
+            top: 20px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #007bff;
+        }
+        .schedule-log {
+            max-height: 400px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .log-entry {
+            padding: 8px 12px;
+            margin: 5px 0;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+            background: white;
+        }
+        .log-entry.success { border-left-color: #28a745; }
+        .log-entry.error { border-left-color: #dc3545; }
+        .log-entry.warning { border-left-color: #ffc107; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark header-bg">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fab fa-facebook-f"></i> Enhanced Unfriend Tracker
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">Home</a>
+                <a class="nav-link" href="/dashboard">Dashboard</a>
+                <a class="nav-link" href="/spreadsheet">Spreadsheet</a>
+                <a class="nav-link active" href="/schedule">Schedule</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-8">
+                <h1><i class="fas fa-calendar-alt"></i> Schedule Management</h1>
+                <p class="lead">Configure automated friend tracking schedules</p>
+
+                <div class="schedule-card">
+                    <h5><i class="fas fa-cog"></i> Current Schedule</h5>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Status</label>
+                                <div>
+                                    <span class="status-indicator status-active" id="statusIndicator"></span>
+                                    <span id="currentStatus">Active</span>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Check Interval</label>
+                                <select class="form-select" id="intervalSelect">
+                                    <option value="300">Every 5 minutes (Testing)</option>
+                                    <option value="3600">Every Hour</option>
+                                    <option value="86400" selected>Daily</option>
+                                    <option value="604800">Weekly</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Next Check</label>
+                                <input type="datetime-local" class="form-control" id="nextCheckTime">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Last Check</label>
+                                <div class="form-control" id="lastCheck">Never</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Total Checks</label>
+                                <div class="form-control" id="totalChecks">0</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Unfriends Detected</label>
+                                <div class="form-control" id="unfriendCount">0</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <button class="btn btn-success" id="startBtn">
+                            <i class="fas fa-play"></i> Start Schedule
+                        </button>
+                        <button class="btn btn-warning" id="pauseBtn">
+                            <i class="fas fa-pause"></i> Pause
+                        </button>
+                        <button class="btn btn-danger" id="stopBtn">
+                            <i class="fas fa-stop"></i> Stop
+                        </button>
+                        <button class="btn btn-info" id="runNowBtn">
+                            <i class="fas fa-sync"></i> Run Now
+                        </button>
+                    </div>
+                </div>
+
+                <div class="schedule-card">
+                    <h5><i class="fas fa-bell"></i> Notification Settings</h5>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="emailNotifications" checked>
+                                <label class="form-check-label" for="emailNotifications">
+                                    Email Notifications
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="desktopNotifications" checked>
+                                <label class="form-check-label" for="desktopNotifications">
+                                    Desktop Notifications
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="soundNotifications">
+                                <label class="form-check-label" for="soundNotifications">
+                                    Sound Notifications
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Email Address</label>
+                                <input type="email" class="form-control" id="emailAddress" placeholder="your@email.com">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Notification Frequency</label>
+                                <select class="form-select" id="notificationFrequency">
+                                    <option value="immediate">Immediate</option>
+                                    <option value="daily" selected>Daily Summary</option>
+                                    <option value="weekly">Weekly Summary</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" id="saveNotificationSettings">
+                        <i class="fas fa-save"></i> Save Notification Settings
+                    </button>
+                </div>
+
+                <div class="schedule-card">
+                    <h5><i class="fas fa-history"></i> Schedule History</h5>
+                    <div class="timeline">
+                        <div class="timeline-item" id="scheduleTimeline">
+                            <div><strong>System Started</strong></div>
+                            <small class="text-muted">Schedule monitoring initialized</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="schedule-card">
+                    <h5><i class="fas fa-chart-line"></i> Schedule Statistics</h5>
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <div class="text-center">
+                                <h4 class="text-primary" id="totalRunsCount">0</h4>
+                                <small>Total Runs</small>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="text-center">
+                                <h4 class="text-success" id="successRunsCount">0</h4>
+                                <small>Successful</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <div class="text-center">
+                                <h4 class="text-warning" id="errorRunsCount">0</h4>
+                                <small>Errors</small>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="text-center">
+                                <h4 class="text-info" id="avgDurationCount">0s</h4>
+                                <small>Avg Duration</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="progress mb-3">
+                        <div class="progress-bar" id="uptimeProgress" role="progressbar" style="width: 95%">
+                            95% Uptime
+                        </div>
+                    </div>
+                </div>
+
+                <div class="schedule-card">
+                    <h5><i class="fas fa-clipboard-list"></i> Activity Log</h5>
+                    <div class="schedule-log" id="activityLog">
+                        <div class="log-entry">
+                            <div><strong>System Initialize</strong></div>
+                            <small class="text-muted">Schedule system started</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let scheduleStatus = 'inactive';
+        let scheduleInterval = null;
+        let totalRuns = 0;
+        let successRuns = 0;
+        let errorRuns = 0;
+
+        // Initialize page
+        function initSchedulePage() {
+            const now = new Date();
+            now.setHours(now.getHours() + 24);
+            document.getElementById('nextCheckTime').value = now.toISOString().slice(0, 16);
+            
+            loadScheduleStatus();
+            requestNotificationPermission();
+        }
+
+        // Load schedule status
+        function loadScheduleStatus() {
+            fetch('/api/schedule')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('currentStatus').textContent = data.status;
+                    updateStatusIndicator(data.status);
+                })
+                .catch(error => {
+                    console.error('Error loading schedule status:', error);
+                });
+        }
+
+        // Update status indicator
+        function updateStatusIndicator(status) {
+            const indicator = document.getElementById('statusIndicator');
+            indicator.className = `status-indicator status-${status}`;
+        }
+
+        // Add log entry
+        function addLogEntry(message, type = 'info') {
+            const logContainer = document.getElementById('activityLog');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `
+                <div><strong>${message}</strong></div>
+                <small class="text-muted">${new Date().toLocaleString()}</small>
+            `;
+            logContainer.insertBefore(entry, logContainer.firstChild);
+            
+            // Keep only last 20 entries
+            if (logContainer.children.length > 20) {
+                logContainer.removeChild(logContainer.lastChild);
+            }
+        }
+
+        // Add timeline entry
+        function addTimelineEntry(title, description) {
+            const timeline = document.getElementById('scheduleTimeline');
+            const entry = document.createElement('div');
+            entry.className = 'timeline-item';
+            entry.innerHTML = `
+                <div><strong>${title}</strong></div>
+                <small class="text-muted">${description} - ${new Date().toLocaleString()}</small>
+            `;
+            timeline.appendChild(entry);
+        }
+
+        // Start schedule
+        document.getElementById('startBtn').addEventListener('click', function() {
+            scheduleStatus = 'active';
+            document.getElementById('currentStatus').textContent = 'Active';
+            updateStatusIndicator('active');
+            
+            const interval = parseInt(document.getElementById('intervalSelect').value) * 1000;
+            
+            scheduleInterval = setInterval(() => {
+                runScheduledCheck();
+            }, interval);
+            
+            addLogEntry('Schedule started', 'success');
+            addTimelineEntry('Schedule Started', 'Automated checking enabled');
+            
+            showNotification('Schedule Started', 'Automated friend tracking is now active');
+        });
+
+        // Pause schedule
+        document.getElementById('pauseBtn').addEventListener('click', function() {
+            scheduleStatus = 'paused';
+            document.getElementById('currentStatus').textContent = 'Paused';
+            updateStatusIndicator('paused');
+            
+            if (scheduleInterval) {
+                clearInterval(scheduleInterval);
+                scheduleInterval = null;
+            }
+            
+            addLogEntry('Schedule paused', 'warning');
+            addTimelineEntry('Schedule Paused', 'Automated checking paused');
+        });
+
+        // Stop schedule
+        document.getElementById('stopBtn').addEventListener('click', function() {
+            scheduleStatus = 'inactive';
+            document.getElementById('currentStatus').textContent = 'Stopped';
+            updateStatusIndicator('inactive');
+            
+            if (scheduleInterval) {
+                clearInterval(scheduleInterval);
+                scheduleInterval = null;
+            }
+            
+            addLogEntry('Schedule stopped', 'error');
+            addTimelineEntry('Schedule Stopped', 'Automated checking disabled');
+        });
+
+        // Run now
+        document.getElementById('runNowBtn').addEventListener('click', function() {
+            runScheduledCheck();
+        });
+
+        // Run scheduled check
+        function runScheduledCheck() {
+            totalRuns++;
+            const startTime = Date.now();
+            
+            addLogEntry('Running scheduled check...', 'info');
+            
+            // Simulate check (in real app, this would call your API)
+            setTimeout(() => {
+                const duration = Date.now() - startTime;
+                const success = Math.random() > 0.1; // 90% success rate
+                
+                if (success) {
+                    successRuns++;
+                    const unfriendCount = Math.floor(Math.random() * 3); // 0-2 unfriends
+                    
+                    addLogEntry(`Check completed - ${unfriendCount} unfriends detected`, 'success');
+                    
+                    if (unfriendCount > 0) {
+                        showNotification('Unfriends Detected!', `${unfriendCount} friends have unfriended you`);
+                    }
+                } else {
+                    errorRuns++;
+                    addLogEntry('Check failed - network error', 'error');
+                }
+                
+                updateStatistics();
+                document.getElementById('lastCheck').textContent = new Date().toLocaleString();
+            }, 2000);
+        }
+
+        // Update statistics
+        function updateStatistics() {
+            document.getElementById('totalRunsCount').textContent = totalRuns;
+            document.getElementById('successRunsCount').textContent = successRuns;
+            document.getElementById('errorRunsCount').textContent = errorRuns;
+            document.getElementById('totalChecks').textContent = totalRuns;
+            
+            const avgDuration = totalRuns > 0 ? (successRuns * 2).toFixed(1) : 0;
+            document.getElementById('avgDurationCount').textContent = avgDuration + 's';
+            
+            const uptime = totalRuns > 0 ? Math.round((successRuns / totalRuns) * 100) : 100;
+            document.getElementById('uptimeProgress').style.width = uptime + '%';
+            document.getElementById('uptimeProgress').textContent = uptime + '% Uptime';
+        }
+
+        // Notification functions
+        function requestNotificationPermission() {
+            if ('Notification' in window) {
+                if (Notification.permission === 'default') {
+                    Notification.requestPermission();
+                }
+            }
+        }
+
+        function showNotification(title, message) {
+            if (document.getElementById('desktopNotifications').checked) {
+                if ('Notification' in window && Notification.permission === 'granted') {
+                    new Notification(title, {
+                        body: message,
+                        icon: '/favicon.ico'
+                    });
+                }
+            }
+            
+            if (document.getElementById('soundNotifications').checked) {
+                // Play notification sound (if you have an audio file)
+                // const audio = new Audio('/notification.mp3');
+                // audio.play();
+            }
+        }
+
+        // Save notification settings
+        document.getElementById('saveNotificationSettings').addEventListener('click', function() {
+            const settings = {
+                email: document.getElementById('emailNotifications').checked,
+                desktop: document.getElementById('desktopNotifications').checked,
+                sound: document.getElementById('soundNotifications').checked,
+                emailAddress: document.getElementById('emailAddress').value,
+                frequency: document.getElementById('notificationFrequency').value
+            };
+            
+            // Save to localStorage (in real app, save to server)
+            localStorage.setItem('notificationSettings', JSON.stringify(settings));
+            
+            addLogEntry('Notification settings saved', 'success');
+        });
+
+        // Load notification settings
+        function loadNotificationSettings() {
+            const saved = localStorage.getItem('notificationSettings');
+            if (saved) {
+                const settings = JSON.parse(saved);
+                document.getElementById('emailNotifications').checked = settings.email;
+                document.getElementById('desktopNotifications').checked = settings.desktop;
+                document.getElementById('soundNotifications').checked = settings.sound;
+                document.getElementById('emailAddress').value = settings.emailAddress || '';
+                document.getElementById('notificationFrequency').value = settings.frequency || 'daily';
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initSchedulePage();
+            loadNotificationSettings();
+        });
+    </script>
+</body>
+</html>

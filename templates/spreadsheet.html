@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spreadsheet View - Facebook Unfriend Tracker</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@5.4.4/dist/css/tabulator.min.css" rel="stylesheet">
+    <style>
+        .header-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .spreadsheet-container {
+            margin: 20px 0;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .toolbar {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px 10px 0 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .status-badge {
+            font-size: 0.8em;
+            padding: 3px 8px;
+            border-radius: 12px;
+        }
+        .status-active { background: #d4edda; color: #155724; }
+        .status-inactive { background: #f8d7da; color: #721c24; }
+        .status-new { background: #fff3cd; color: #856404; }
+        .filter-controls {
+            background: #fff;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            border: 1px solid #dee2e6;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark header-bg">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fab fa-facebook-f"></i> Enhanced Unfriend Tracker
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">Home</a>
+                <a class="nav-link" href="/dashboard">Dashboard</a>
+                <a class="nav-link active" href="/spreadsheet">Spreadsheet</a>
+                <a class="nav-link" href="/schedule">Schedule</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-12">
+                <h1><i class="fas fa-table"></i> Friends Spreadsheet</h1>
+                <p class="lead">Interactive table view of your Facebook friends data</p>
+
+                <div class="filter-controls">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <label class="form-label">Filter by Status</label>
+                            <select class="form-select" id="statusFilter">
+                                <option value="">All</option>
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Search Friends</label>
+                            <input type="text" class="form-control" id="searchInput" placeholder="Search by name...">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Date Range</label>
+                            <select class="form-select" id="dateFilter">
+                                <option value="">All Time</option>
+                                <option value="7">Last 7 days</option>
+                                <option value="30">Last 30 days</option>
+                                <option value="90">Last 90 days</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Actions</label>
+                            <div>
+                                <button class="btn btn-primary btn-sm" id="exportBtn">
+                                    <i class="fas fa-download"></i> Export CSV
+                                </button>
+                                <button class="btn btn-success btn-sm" id="refreshBtn">
+                                    <i class="fas fa-sync"></i> Refresh
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="spreadsheet-container">
+                    <div class="toolbar">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h5><i class="fas fa-users"></i> Friends Data</h5>
+                                <small class="text-muted">Total: <span id="totalCount">0</span> friends</small>
+                            </div>
+                            <div class="col-md-6 text-end">
+                                <button class="btn btn-outline-primary btn-sm" id="addFriendBtn">
+                                    <i class="fas fa-plus"></i> Add Friend
+                                </button>
+                                <button class="btn btn-outline-danger btn-sm" id="deleteSelectedBtn">
+                                    <i class="fas fa-trash"></i> Delete Selected
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="friendsTable"></div>
+                </div>
+
+                <div class="mt-4">
+                    <h5><i class="fas fa-chart-bar"></i> Quick Stats</h5>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <h4 class="text-success" id="activeCount">0</h4>
+                                    <p class="mb-0">Active Friends</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <h4 class="text-danger" id="inactiveCount">0</h4>
+                                    <p class="mb-0">Unfriended</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <h4 class="text-warning" id="recentCount">0</h4>
+                                    <p class="mb-0">Recent Changes</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <h4 class="text-info" id="avgFriends">0</h4>
+                                    <p class="mb-0">Avg. per Month</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@5.4.4/dist/js/tabulator.min.js"></script>
+    <script>
+        let table;
+        let tableData = [];
+
+        // Initialize table
+        function initTable() {
+            table = new Tabulator("#friendsTable", {
+                height: 600,
+                layout: "fitColumns",
+                selectable: true,
+                pagination: "local",
+                paginationSize: 50,
+                movableColumns: true,
+                resizableRows: true,
+                tooltips: true,
+                columns: [
+                    {
+                        title: "Select",
+                        formatter: "rowSelection",
+                        titleFormatter: "rowSelection",
+                        hozAlign: "center",
+                        headerSort: false,
+                        width: 60
+                    },
+                    {
+                        title: "Name",
+                        field: "name",
+                        editor: "input",
+                        headerFilter: "input",
+                        width: 200
+                    },
+                    {
+                        title: "Status",
+                        field: "status",
+                        formatter: function(cell, formatterParams) {
+                            const value = cell.getValue();
+                            const statusClass = value === 'active' ? 'status-active' : 'status-inactive';
+                            return `<span class="status-badge ${statusClass}">${value}</span>`;
+                        },
+                        editor: "select",
+                        editorParams: {
+                            values: ["active", "inactive"]
+                        },
+                        headerFilter: "select",
+                        headerFilterParams: {
+                            values: {"": "All", "active": "Active", "inactive": "Inactive"}
+                        },
+                        width: 100
+                    },
+                    {
+                        title: "Facebook Added",
+                        field: "facebook_date",
+                        sorter: "date",
+                        headerFilter: "input",
+                        width: 150
+                    },
+                    {
+                        title: "Tracked Since",
+                        field: "tracked_date",
+                        sorter: "date",
+                        headerFilter: "input",
+                        width: 150
+                    },
+                    {
+                        title: "Last Update",
+                        field: "last_update",
+                        sorter: "date",
+                        headerFilter: "input",
+                        width: 150
+                    },
+                    {
+                        title: "Actions",
+                        formatter: function(cell, formatterParams) {
+                            return `
+                                <button class="btn btn-sm btn-outline-primary" onclick="editFriend(${cell.getRow().getIndex()})">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteFriend(${cell.getRow().getIndex()})">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            `;
+                        },
+                        width: 120,
+                        headerSort: false
+                    }
+                ]
+            });
+        }
+
+        // Load data from API
+        function loadData() {
+            fetch('/api/friends')
+                .then(response => response.json())
+                .then(data => {
+                    tableData = data;
+                    table.setData(data);
+                    updateStats();
+                })
+                .catch(error => {
+                    console.error('Error loading data:', error);
+                    // Load sample data for demonstration
+                    loadSampleData();
+                });
+        }
+
+        // Load sample data for demonstration
+        function loadSampleData() {
+            const sampleData = [
+                {
+                    name: "John Doe",
+                    status: "active",
+                    facebook_date: "2023-01-15",
+                    tracked_date: "2024-01-01",
+                    last_update: "2024-01-15"
+                },
+                {
+                    name: "Jane Smith",
+                    status: "inactive",
+                    facebook_date: "2022-06-20",
+                    tracked_date: "2024-01-01",
+                    last_update: "2024-01-10"
+                },
+                {
+                    name: "Bob Johnson",
+                    status: "active",
+                    facebook_date: "2023-03-10",
+                    tracked_date: "2024-01-01",
+                    last_update: "2024-01-15"
+                }
+            ];
+            
+            tableData = sampleData;
+            table.setData(sampleData);
+            updateStats();
+        }
+
+        // Update statistics
+        function updateStats() {
+            const activeCount = tableData.filter(f => f.status === 'active').length;
+            const inactiveCount = tableData.filter(f => f.status === 'inactive').length;
+            const totalCount = tableData.length;
+            
+            document.getElementById('totalCount').textContent = totalCount;
+            document.getElementById('activeCount').textContent = activeCount;
+            document.getElementById('inactiveCount').textContent = inactiveCount;
+            document.getElementById('recentCount').textContent = Math.floor(totalCount * 0.1); // Sample calculation
+            document.getElementById('avgFriends').textContent = Math.floor(totalCount / 12); // Sample calculation
+        }
+
+        // Filter functions
+        document.getElementById('statusFilter').addEventListener('change', function() {
+            const value = this.value;
+            if (value) {
+                table.setFilter('status', '=', value);
+            } else {
+                table.clearFilter();
+            }
+        });
+
+        document.getElementById('searchInput').addEventListener('input', function() {
+            const value = this.value;
+            if (value) {
+                table.setFilter('name', 'like', value);
+            } else {
+                table.clearFilter();
+            }
+        });
+
+        document.getElementById('dateFilter').addEventListener('change', function() {
+            const days = this.value;
+            if (days) {
+                const cutoffDate = new Date();
+                cutoffDate.setDate(cutoffDate.getDate() - parseInt(days));
+                table.setFilter('tracked_date', '>=', cutoffDate.toISOString().split('T')[0]);
+            } else {
+                table.clearFilter();
+            }
+        });
+
+        // Action buttons
+        document.getElementById('exportBtn').addEventListener('click', function() {
+            table.download("csv", "friends_data.csv");
+        });
+
+        document.getElementById('refreshBtn').addEventListener('click', function() {
+            loadData();
+        });
+
+        document.getElementById('addFriendBtn').addEventListener('click', function() {
+            const name = prompt('Enter friend name:');
+            if (name) {
+                const newFriend = {
+                    name: name,
+                    status: 'active',
+                    facebook_date: new Date().toISOString().split('T')[0],
+                    tracked_date: new Date().toISOString().split('T')[0],
+                    last_update: new Date().toISOString().split('T')[0]
+                };
+                table.addData([newFriend]);
+                updateStats();
+            }
+        });
+
+        document.getElementById('deleteSelectedBtn').addEventListener('click', function() {
+            const selectedRows = table.getSelectedRows();
+            if (selectedRows.length > 0) {
+                if (confirm(`Delete ${selectedRows.length} selected friends?`)) {
+                    selectedRows.forEach(row => row.delete());
+                    updateStats();
+                }
+            } else {
+                alert('Please select rows to delete');
+            }
+        });
+
+        // Friend actions
+        function editFriend(index) {
+            const rowData = table.getRows()[index].getData();
+            const newName = prompt('Edit friend name:', rowData.name);
+            if (newName && newName !== rowData.name) {
+                table.getRows()[index].update({name: newName});
+            }
+        }
+
+        function deleteFriend(index) {
+            const rowData = table.getRows()[index].getData();
+            if (confirm(`Delete ${rowData.name}?`)) {
+                table.getRows()[index].delete();
+                updateStats();
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initTable();
+            loadData();
+        });
+    </script>
+</body>
+</html>
