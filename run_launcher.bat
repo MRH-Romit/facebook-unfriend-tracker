@@ -21,15 +21,21 @@ echo.
 echo [1] 🚀 Launch GUI Application (Recommended)
 echo [2] 🌐 Start Web Server Only
 echo [3] 📊 Open Web Interface (if server running)
-echo [4] �️  Console Launcher (Tkinter-free)
+echo [4] 🖥️  Console Launcher (Tkinter-free)
 echo [5] 📥 Facebook Data Helper Guide
-echo [6] �📋 View Project Info & README
+echo [6] 📋 View Project Info & README
 echo [7] 🔧 Build Executable (PyInstaller)
 echo [8] 📦 Install Dependencies
 echo [9] 🧹 Clean Project Files
-echo [10] ❌ Exit
+echo [10] 💾 Backup Database & Data
+echo [11] 📈 Show Database Statistics
+echo [12] 📤 Export All Data to CSV
+echo [13] 🔍 Check Database Integrity
+echo [14] 🚀 Auto Setup (Complete Installation)
+echo [15] 🧪 Run Test Suite
+echo [16] ❌ Exit
 echo.
-set /p choice="Select option (1-10): "
+set /p choice="Select option (1-16): "
 
 if "%choice%"=="1" goto GUI_LAUNCHER
 if "%choice%"=="2" goto WEB_SERVER
@@ -40,8 +46,14 @@ if "%choice%"=="6" goto PROJECT_INFO
 if "%choice%"=="7" goto BUILD_EXE
 if "%choice%"=="8" goto INSTALL_DEPS
 if "%choice%"=="9" goto CLEAN_PROJECT
-if "%choice%"=="10" goto EXIT
-echo Invalid choice! Please select 1-10.
+if "%choice%"=="10" goto BACKUP_DATA
+if "%choice%"=="11" goto SHOW_STATS
+if "%choice%"=="12" goto EXPORT_DATA
+if "%choice%"=="13" goto CHECK_INTEGRITY
+if "%choice%"=="14" goto AUTO_SETUP
+if "%choice%"=="15" goto RUN_TESTS
+if "%choice%"=="16" goto EXIT
+echo Invalid choice! Please select 1-16.
 goto MENU
 
 :GUI_LAUNCHER
@@ -392,12 +404,98 @@ if exist ".mypy_cache" rmdir /s /q ".mypy_cache"
 if exist "*.pyc" del /q "*.pyc"
 if exist ".pytest_cache" rmdir /s /q ".pytest_cache"
 if exist "*.log" del /q "*.log"
-echo Cleaning temporary upload files...
-if exist "uploads\*.tmp" del /q "uploads\*.tmp"
+echo Using utility script for advanced cleanup...
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" utils.py cleanup
+) else (
+    python utils.py cleanup
+)
 echo.
 echo ✅ Project cleaned successfully!
 echo 🗑️  Removed: Cache files, build artifacts, temporary files
 echo 📁 Kept: Source code, database, templates, user data
+pause
+goto MENU
+
+:BACKUP_DATA
+echo.
+echo Creating Backup...
+echo ==================
+echo Creating backup of database and data files...
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" utils.py backup
+) else (
+    python utils.py backup
+)
+echo.
+pause
+goto MENU
+
+:SHOW_STATS
+echo.
+echo Database Statistics...
+echo =====================
+echo Showing comprehensive database statistics...
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" utils.py stats
+) else (
+    python utils.py stats
+)
+echo.
+pause
+goto MENU
+
+:EXPORT_DATA
+echo.
+echo Exporting All Data...
+echo ====================
+echo Exporting all data to CSV files...
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" utils.py export
+) else (
+    python utils.py export
+)
+echo.
+pause
+goto MENU
+
+:CHECK_INTEGRITY
+echo.
+echo Checking Database Integrity...
+echo =============================
+echo Verifying database consistency and integrity...
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" utils.py integrity
+) else (
+    python utils.py integrity
+)
+echo.
+pause
+goto MENU
+
+:AUTO_SETUP
+echo.
+echo Automated Setup...
+echo ==================
+echo Running complete automated setup process...
+echo This will create virtual environment, install dependencies, and initialize database.
+echo.
+python setup.py
+echo.
+pause
+goto MENU
+
+:RUN_TESTS
+echo.
+echo Running Test Suite...
+echo ====================
+echo Running comprehensive tests to verify installation...
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" test_suite.py
+) else (
+    python test_suite.py
+)
+echo.
 pause
 goto MENU
 
