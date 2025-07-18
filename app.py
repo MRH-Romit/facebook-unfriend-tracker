@@ -31,31 +31,67 @@ os.makedirs(CSV_FOLDER, exist_ok=True)
 
 def init_db():
     """Initialize the database with required tables"""
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-    
-    # Create friends table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS friends (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            status TEXT DEFAULT 'active',
-            facebook_timestamp INTEGER DEFAULT 0
-        )
-    ''')
-    
-    # Create unfriends table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS unfriends (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            unfriended_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-            last_seen DATETIME
-        )
-    ''')
-    
-    # Create tracking_history table
+    try:
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        
+        # Create friends table with improved schema
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS friends (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'active',
+                facebook_timestamp INTEGER DEFAULT 0,
+                first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(name) ON CONFLICT REPLACE
+            )
+        ''')
+        
+        # Create unfriends table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS unfriends (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                unfriended_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_seen DATETIME,
+                friend_duration_days INTEGER DEFAULT 0
+            )
+        ''')
+        
+        # Create tracking_history table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tracking_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                total_friends INTEGER,
+                unfriended_count INTEGER,
+                new_friends_count INTEGER,
+                check_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                upload_filename TEXT
+            )
+        ''')
+        
+        # Create application_log table for better logging
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS application_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                level TEXT NOT NULL,
+                message TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                user_action TEXT
+            )
+        ''')
+        
+        conn.commit()
+        logger.info("Database initialized successfully")
+        
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        raise
+    finally:
+        if conn:
+            conn.close()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tracking_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,62 +105,171 @@ def init_db():
     conn.commit()
     conn.close()
 
+def log_action(level, message, user_action=None):
+    """Log application events to database"""
+    try:
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO application_log (level, message, user_action) 
+            VALUES (?, ?, ?)
+        ''', (level, message, user_action))
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to log action: {e}")
+    finally:
+        if conn:
+            conn.close()
+
 def allowed_file(filename):
-    """Check if uploaded file has allowed extension"""
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    """Check if uploaded file has allowed extension and is safe"""
+    if not filename or '.' not in filename:
+        return False
+    
+    extension = filename.rsplit('.', 1)[1].lower()
+    if extension not in ALLOWED_EXTENSIONS:
+        return False
+        
+    # Additional security checks
+    if len(filename) > 255:  # Prevent extremely long filenames
+        return False
+        
+    # Check for dangerous characters
+    dangerous_chars = ['<', '>', ':', '"', '|', '?', '*', '\\', '/']
+    if any(char in filename for char in dangerous_chars):
+        return False
+        
+    return True
 
 def extract_friends_from_json(file_path):
-    """Extract friends list from Facebook JSON file"""
+    """Extract friends list from Facebook JSON file with improved error handling"""
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+        
+    if os.path.getsize(file_path) == 0:
+        raise ValueError("File is empty")
+        
+    if os.path.getsize(file_path) > 50 * 1024 * 1024:  # 50MB limit
+        raise ValueError("File too large (max 50MB)")
+    
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
             
-        # Handle different possible structures
-        friends = []
-        if 'friends' in data:
-            friends = data['friends']
-        elif 'friends_v2' in data:
-            friends = data['friends_v2']
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON file: {e}")
+        raise ValueError("Invalid JSON format. Please ensure you uploaded a valid Facebook JSON file.")
+    except UnicodeDecodeError as e:
+        logger.error(f"Encoding error: {e}")
+        raise ValueError("File encoding error. Please ensure the file is properly encoded.")
+    except Exception as e:
+        logger.error(f"Error reading file: {e}")
+        raise ValueError(f"Error reading file: {str(e)}")
+            
+    # Handle different possible structures with validation
+    friends = []
+    
+    try:
+        if isinstance(data, dict):
+            if 'friends' in data:
+                friends = data['friends']
+            elif 'friends_v2' in data:
+                friends = data['friends_v2']
+            elif 'data' in data:
+                friends = data['data']
+            else:
+                # Check if the data itself contains friend information
+                if 'name' in data or 'display_name' in data:
+                    friends = [data]
+                else:
+                    raise ValueError("Unrecognized Facebook JSON structure")
         elif isinstance(data, list):
             friends = data
+        else:
+            raise ValueError("Invalid JSON structure. Expected object or array.")
             
-        # Extract names and timestamps
+        if not friends:
+            raise ValueError("No friends data found in the file")
+            
+        # Extract names and timestamps with validation
         friend_data = []
-        for friend in friends:
-            if isinstance(friend, dict):
-                name = friend.get('name', '')
-                timestamp = friend.get('timestamp', 0)
-                
-                if not name:
-                    # Try other possible keys
-                    name = friend.get('display_name', '') or friend.get('full_name', '')
-                
-                if name:
-                    # Convert timestamp to readable date
+        processed_names = set()  # Prevent duplicates
+        
+        for idx, friend in enumerate(friends):
+            try:
+                if isinstance(friend, dict):
+                    name = friend.get('name', '')
+                    if not name:
+                        # Try other possible keys
+                        name = (friend.get('display_name', '') or 
+                               friend.get('full_name', '') or 
+                               friend.get('title', ''))
+                    
+                    if not name or not isinstance(name, str):
+                        logger.warning(f"Skipping friend entry {idx}: no valid name found")
+                        continue
+                        
+                    name = name.strip()
+                    if not name or len(name) > 255:  # Reasonable name length limit
+                        logger.warning(f"Skipping friend entry {idx}: invalid name")
+                        continue
+                        
+                    # Skip duplicates
+                    if name in processed_names:
+                        logger.warning(f"Skipping duplicate friend: {name}")
+                        continue
+                    processed_names.add(name)
+                    
+                    timestamp = friend.get('timestamp', 0)
+                    
+                    # Validate and convert timestamp
                     if timestamp:
                         try:
+                            if isinstance(timestamp, str):
+                                timestamp = int(timestamp)
                             friend_date = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
-                        except:
+                        except (ValueError, OverflowError, OSError):
+                            logger.warning(f"Invalid timestamp for {name}: {timestamp}")
                             friend_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            timestamp = 0
                     else:
                         friend_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        timestamp = 0
                     
                     friend_data.append({
                         'name': name,
                         'timestamp': timestamp,
                         'date_added': friend_date
                     })
-            elif isinstance(friend, str):
-                friend_data.append({
-                    'name': friend,
-                    'timestamp': 0,
-                    'date_added': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                })
+                    
+                elif isinstance(friend, str):
+                    name = friend.strip()
+                    if name and len(name) <= 255 and name not in processed_names:
+                        processed_names.add(name)
+                        friend_data.append({
+                            'name': name,
+                            'timestamp': 0,
+                            'date_added': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        })
+                else:
+                    logger.warning(f"Skipping invalid friend entry {idx}: {type(friend)}")
+                    
+            except Exception as e:
+                logger.warning(f"Error processing friend entry {idx}: {e}")
+                continue
                 
+        if not friend_data:
+            raise ValueError("No valid friends found in the file. Please check the file format.")
+            
+        logger.info(f"Successfully extracted {len(friend_data)} friends from JSON")
         return friend_data
+        
     except Exception as e:
-        print(f"Error extracting friends: {e}")
-        return []
+        logger.error(f"Error extracting friends: {e}")
+        if isinstance(e, ValueError):
+            raise
+        else:
+            raise ValueError(f"Error processing friends data: {str(e)}")
 
 def save_friends_to_csv(friends_data, filename=None):
     """Save friends data to CSV file"""
@@ -246,6 +391,24 @@ def scheduled_check():
     # For now, it's a placeholder - in a real scenario, you'd need to
     # implement automatic data fetching or manual uploads
     pass
+
+@app.errorhandler(404)
+def not_found_error(error):
+    """Handle 404 errors"""
+    return render_template('index.html'), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 errors"""
+    logger.error(f"Internal server error: {error}")
+    flash('An internal error occurred. Please try again.')
+    return render_template('index.html'), 500
+
+@app.errorhandler(RequestEntityTooLarge)
+def too_large(error):
+    """Handle file too large errors"""
+    flash('File too large. Maximum size is 16MB.')
+    return redirect(url_for('index')), 413
 
 @app.route('/')
 def index():
